@@ -12,6 +12,6 @@ pip install .
 ```
 ## How to use
 ```ruby
-python main.py --train_ True --batch_size 256 --num_epochs 15
+python main.py --train_ True --batch_size 256 --num_epochs 15 --data_dir ./$your_data_dir
 <<user only argparse>>
 ``` 
