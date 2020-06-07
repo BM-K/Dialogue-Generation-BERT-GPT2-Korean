@@ -1,7 +1,8 @@
 # QA_Model_bert-gpt
 
 ## Model Intro
-Question을 KoBERT를 통해 representation 하고, Answer를 pre-trained gpt2 <<self attn까지>> 를 통과시켜 벡터 표현을 얻는다. 그 후 BERT 표현과 GPT표현을 transformer <<enc-dec attn -> ff>> 로 통과시켜 학습함. 단 << >> 구간에선 gradient를 fix 시킴.
+Question을 KoBERT를 통해 representation 하고, Answer를 pre-trained gpt2 <<self attn까지>> 를 통과시켜 벡터 표현을 얻는다. 그 후 BERT 표현과 GPT표현을 transformer <<enc-dec attn -> ff>> 로 통과시켜 학습함. 단 << >> 구간에선 gradient를 fix 시킴. <br>
+-본 repo에선 데이터와 KoBERT 모델을 제공하지 않음-
 ## How to install
 ```ruby
 git clone https://github.com/BM-K/QA_Model_bert-gpt.git
