@@ -12,6 +12,7 @@ pip install .
 ```
 ## How to use
 ```ruby
+python data_to_tsv ※ aihub_category 데이터가 있는경우 
 python main.py --train_ True --batch_size 256 --num_epochs 15 --data_dir ./$your_data_dir
 <<user only argparse>>
 ``` 
