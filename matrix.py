@@ -15,7 +15,7 @@ def epoch_time(start_time, end_time):
 
     return elapsed_mins, elapsed_secs
 
-# 학습시 학습되는 q, a 
+# 학습시 학습되는 q, a 출력
 def test_time_visual(args, inputs, outputs, targets, bert_tk, gpt_vocab):
     print("\t---------------")
     input_sentence_list = bert_tk.convert_ids_to_tokens(inputs[0])
