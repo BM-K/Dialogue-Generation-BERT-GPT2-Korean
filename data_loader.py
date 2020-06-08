@@ -1,7 +1,6 @@
 import re
 import torch
 from torchtext import data
-from konlpy.tag import Mecab
 from torchtext.data import TabularDataset
 from torchtext.data import BucketIterator
 from src.others.tokenization_etri_eojeol import BertTokenizer

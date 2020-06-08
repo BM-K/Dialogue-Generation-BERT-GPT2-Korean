@@ -2,15 +2,16 @@ import time
 import copy
 import torch
 import argparse
-import numpy as np
 import torch.nn as nn
 import torch.optim as optim
-from chatspace import ChatSpace
+from generation import inference
 from data_loader import load_data, prepro
 from transformer_based_decoder import Transformer
 from matrix import acc, epoch_time, test_time_visual
 from gpt_model import GPT2, gpt_vocab, gpt_tokenizer
-spacer = ChatSpace()
+from utils import get_target, get_dec_inputs, get_segment_ids_vaild_len, gen_attention_mask
+
+
 
 def define_args(parser):
     parser.add_argument('--max_len', type=int, default=16)
@@ -27,48 +28,6 @@ def define_args(parser):
     args = parser.parse_args()
     return args
 
-def get_target(temp_target):
-    pad_token = torch.tensor([gpt_pad_token])
-    for idx in range(len(temp_target)):
-        temp = temp_target[idx][1:]
-        temp = torch.cat([temp, pad_token.cuda()], dim=-1)
-        temp_target[idx] = temp
-
-    return temp_target
-
-def get_dec_inputs(temp_dec):
-    pad_token = gpt_pad_token
-    eos_token = gpt_eos_token
-    for idx in range(len(temp_dec)):
-        temp = temp_dec[idx][:].cpu().tolist()
-        eos_idx = temp.index(eos_token)
-        temp[eos_idx] = pad_token
-        temp = torch.tensor(temp)
-        temp_dec[idx] = temp
-
-    return temp_dec.cpu()
-
-def get_segment_ids_vaild_len(inputs):
-    bert_pad_idx = pad_token_idx
-    v_len_list = [0] * len(inputs)
-
-    for i in range(len(inputs)):
-        for j in range(len(inputs[i])):
-            if inputs[i][j] == bert_pad_idx:
-                break
-            else:
-                v_len_list[i] += 1
-
-    segment_ids = torch.zeros_like(inputs).long().to(device)
-    valid_length = torch.tensor(v_len_list, dtype=torch.int32)
-
-    return segment_ids, valid_length
-
-def gen_attention_mask(token_ids, valid_length):
-    attention_mask = torch.zeros_like(token_ids)
-    for i, v in enumerate(valid_length):
-        attention_mask[i][:v] = 1
-    return attention_mask.float()
 
 def train(model, gpt_model, iterator, optimizer, criterion):
     total_loss = 0
@@ -85,14 +44,14 @@ def train(model, gpt_model, iterator, optimizer, criterion):
         copy_dec_inputs = copy.deepcopy(batch.ans)
         copy_dec_target = copy.deepcopy(batch.ans)
 
-        dec_inputs = get_dec_inputs(copy_dec_inputs)
-        target_ = get_target(copy_dec_target)
+        dec_inputs = get_dec_inputs(copy_dec_inputs, gpt_pad_token, gpt_eos_token)
+        target_ = get_target(copy_dec_target, gpt_pad_token)
         target_ = target_.view(-1)
 
         with torch.no_grad():
             dec_inputs = gpt_model(dec_inputs)
 
-        segment_ids, valid_len = get_segment_ids_vaild_len(enc_inputs)
+        segment_ids, valid_len = get_segment_ids_vaild_len(enc_inputs, pad_token_idx)
         attention_mask = gen_attention_mask(enc_inputs, valid_len)
 
         outputs = model(enc_inputs, dec_inputs, segment_ids, attention_mask)
@@ -107,8 +66,9 @@ def train(model, gpt_model, iterator, optimizer, criterion):
             tr_acc = acc(outputs, target_, gpt_pad_token)
         train_acc += tr_acc
 
-        #test_time_visual(args, enc_inputs, outputs, target_, bert_tokenizer, gpt_vocab)
+        # test_time_visual(args, enc_inputs, outputs, target_, bert_tokenizer, gpt_vocab)
     return total_loss.data.cpu().numpy() / iter_num, train_acc.data.cpu().numpy() / iter_num
+
 
 def valid(model, gpt_model, iterator, optimizer, criterion):
     total_loss = 0
@@ -119,20 +79,19 @@ def valid(model, gpt_model, iterator, optimizer, criterion):
 
     with torch.no_grad():
         for step, batch in enumerate(iterator):
-
             enc_inputs = batch.que
 
             copy_dec_inputs = copy.deepcopy(batch.ans)
             copy_dec_target = copy.deepcopy(batch.ans)
 
-            dec_inputs = get_dec_inputs(copy_dec_inputs)
-            target_ = get_target(copy_dec_target)
+            dec_inputs = get_dec_inputs(copy_dec_inputs, gpt_pad_token, gpt_eos_token)
+            target_ = get_target(copy_dec_target, gpt_pad_token)
             target_ = target_.view(-1)
 
             with torch.no_grad():
                 dec_inputs = gpt_model(dec_inputs)
 
-            segment_ids, valid_len = get_segment_ids_vaild_len(enc_inputs)
+            segment_ids, valid_len = get_segment_ids_vaild_len(enc_inputs, pad_token_idx)
             attention_mask = gen_attention_mask(enc_inputs, valid_len)
 
             outputs = model(enc_inputs, dec_inputs, segment_ids, attention_mask)
@@ -145,6 +104,7 @@ def valid(model, gpt_model, iterator, optimizer, criterion):
             test_acc += te_acc
 
         return total_loss.data.cpu().numpy() / iter_num, test_acc.data.cpu().numpy() / iter_num
+
 
 def test(model, gpt_model, iterator, optimizer, criterion):
     total_loss = 0
@@ -155,20 +115,19 @@ def test(model, gpt_model, iterator, optimizer, criterion):
 
     with torch.no_grad():
         for step, batch in enumerate(iterator):
-            
             enc_inputs = batch.que
 
             copy_dec_inputs = copy.deepcopy(batch.ans)
             copy_dec_target = copy.deepcopy(batch.ans)
 
-            dec_inputs = get_dec_inputs(copy_dec_inputs)
-            target_ = get_target(copy_dec_target)
+            dec_inputs = get_dec_inputs(copy_dec_inputs, gpt_pad_token, gpt_eos_token)
+            target_ = get_target(copy_dec_target, gpt_pad_token)
             target_ = target_.view(-1)
 
             with torch.no_grad():
                 dec_inputs = gpt_model(dec_inputs)
 
-            segment_ids, valid_len = get_segment_ids_vaild_len(enc_inputs)
+            segment_ids, valid_len = get_segment_ids_vaild_len(enc_inputs, pad_token_idx)
             attention_mask = gen_attention_mask(enc_inputs, valid_len)
 
             outputs = model(enc_inputs, dec_inputs, segment_ids, attention_mask)
@@ -182,61 +141,6 @@ def test(model, gpt_model, iterator, optimizer, criterion):
 
         return total_loss.data.cpu().numpy() / iter_num, test_acc.data.cpu().numpy() / iter_num
 
-def inference(model, gpt_model):
-    init_token = bert_tokenizer.cls_token
-    pad_token = bert_tokenizer.pad_token
-    init_token_idx = bert_tokenizer.convert_tokens_to_ids(init_token)
-    pad_token_idx = bert_tokenizer.convert_tokens_to_ids(pad_token)
-
-    sentence = input("문장을 입력하세요 : ")
-    sentence = prepro(sentence)
-    init_token = torch.tensor([init_token_idx])
-    pad_token = torch.tensor([pad_token_idx])
-
-    tokens = bert_tokenizer.tokenize(sentence)
-    enc_inputs = torch.tensor([bert_tokenizer.convert_tokens_to_ids(tokens)])
-    enc_inputs = torch.cat([init_token.unsqueeze(0), enc_inputs], dim=-1)
-
-    cur_enc_len = len(enc_inputs[0])
-    for i in range(args.max_len - cur_enc_len):
-        enc_inputs = torch.cat([enc_inputs, pad_token.unsqueeze(0)], dim=-1)
-    enc_inputs = enc_inputs.cuda()
-
-    segment_ids, valid_len = get_segment_ids_vaild_len(enc_inputs)
-    attention_mask = gen_attention_mask(enc_inputs, valid_len)
-
-    dec_inputs = torch.tensor([[gpt_init_token]])
-    pred = []
-
-    model.eval()
-    gpt_model.eval()
-
-    for i in range(args.max_len):
-        with torch.no_grad():
-            dec_in = gpt_model(dec_inputs.cpu())
-
-        y_pred = model(enc_inputs, dec_in, segment_ids, attention_mask)
-        y_pred_ids = y_pred.max(dim=-1)[1]
-
-        if (y_pred_ids[-1] == gpt_eos_token):
-            y_pred_ids = y_pred_ids.squeeze(0).cpu()
-            for idx in range(len(y_pred_ids)):
-                if y_pred_ids[idx] == gpt_eos_token:
-                    pred = [pred[x].numpy().tolist() for x in range(len(pred))]
-                    pred = list(pred)
-                    pred = gpt_vocab.to_tokens(pred)
-                    pred_sentence = "".join(pred)
-                    pred_sentence = pred_sentence.replace('▁', ' ')
-                    pred_str = spacer.space(pred_sentence)
-                    print(">> ", pred_str)
-                    break
-                else:
-                    pred.append(y_pred_ids[idx])
-            return 0
-
-        else:
-            dec_inputs = torch.cat([
-                dec_inputs.cpu(), y_pred_ids[-1].unsqueeze(0).unsqueeze(0).cpu()], dim=-1)
 
 def main(Que, Ans, train_loader, test_loader, valid_loader):
     early_stop_check = 0
@@ -268,7 +172,7 @@ def main(Que, Ans, train_loader, test_loader, valid_loader):
 
             valid_loss, valid_acc = valid(
                 transformer_model, gpt_model, valid_loader, optimizer, criterion)
-            
+
             # time cal
             end_time = time.time()
             epoch_mins, epoch_secs = epoch_time(start_time, end_time)
@@ -302,14 +206,15 @@ def main(Que, Ans, train_loader, test_loader, valid_loader):
         print(f'\n\t==Test loss: {test_loss:.3f} | Test acc: {test_acc:.3f}==\n')
 
         while (True):
-            inference(transformer_model, gpt_model)
+            inference(transformer_model, gpt_model, gpt_vocab, args)
             print("\n")
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     args = define_args(parser)
     cache_dir = './cache_dir'
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-    Que, Ans, train_loader, test_loader, valid_loader, pad_token_idx, gpt_pad_token, bert_tokenizer, data_file_front, gpt_init_token, gpt_eos_token= \
+    Que, Ans, train_loader, test_loader, valid_loader, pad_token_idx, gpt_pad_token, bert_tokenizer, data_file_front, gpt_init_token, gpt_eos_token = \
         load_data(args, gpt_tokenizer, gpt_vocab)
     main(Que, Ans, train_loader, test_loader, valid_loader)
