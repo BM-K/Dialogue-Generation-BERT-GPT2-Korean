@@ -93,8 +93,10 @@ class DecoderLayer(nn.Module):
 
     def forward(self, dec_inputs, enc_outputs, dec_self_attn_mask, dec_enc_attn_mask):
         dec_outputs, dec_enc_attn = self.dec_enc_attn(dec_inputs, enc_outputs, enc_outputs, dec_enc_attn_mask)
+        
         with torch.no_grad():
             dec_outputs = self.pos_ffn(dec_outputs)
+            
         return dec_outputs  #, dec_self_attn, dec_enc_attn
 
 class Decoder(nn.Module):
@@ -103,10 +105,11 @@ class Decoder(nn.Module):
         self.layers = nn.ModuleList([DecoderLayer(args) for _ in range(args.n_layers)])
 
     def forward(self, dec_inputs, enc_outputs):  # dec_inputs : [batch_size x target_len]
+    
         for layer in self.layers:
             dec_outputs = \
                 layer(dec_inputs, enc_outputs, dec_self_attn_mask=None, dec_enc_attn_mask=None)
-
+            
         return dec_outputs
 
 class ETRI_KOBERT(nn.Module):
@@ -117,7 +120,7 @@ class ETRI_KOBERT(nn.Module):
 
     def forward(self, x, segs, mask):
         top_vec, _ = self.model(input_ids=x, token_type_ids=segs, attention_mask=mask)
-        top_vec = self.li1(top_vec)
+        #top_vec = self.li1(top_vec)
         return top_vec
 
 class Transformer(nn.Module):
@@ -131,8 +134,10 @@ class Transformer(nn.Module):
         self.bert.model = BertModel(bert_config)
 
     def forward(self, enc_inputs, dec_inputs, segment_ids, attn_mask):
+        #with torch.no_grad():
         bert_encoding_vec = self.bert(enc_inputs, segment_ids, attn_mask)
-        dec_outputs = self.decoder(dec_inputs, bert_encoding_vec)
+        
+        dec_outputs = self.decoder(dec_inputs, bert_encoding_vec) 
         dec_logits = self.projection(dec_outputs)  # dec_logits : [batch_size x src_vocab_size x tgt_vocab_size]
         return dec_logits.view(-1, dec_logits.size(-1))
 

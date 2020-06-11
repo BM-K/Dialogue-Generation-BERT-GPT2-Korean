@@ -23,14 +23,15 @@ def prepro(text):
     return text
 
 def load_data(args, gpt_tokenizer, gpt_vocab):
-    data_file_front = 'A_food'
-    train_data = f'{data_file_front}.txt_train.tsv'
-    test_data = f'{data_file_front}.txt_test.tsv'
-    valid_data = f'{data_file_front}.txt_valid.tsv'
+    data_file_front = '2_beauty'
+    train_data_ = f'{data_file_front}_train.txt_train.tsv'
+    test_data_ = f'{data_file_front}_test.txt_test.tsv'
+    valid_data_ = f'{data_file_front}_valid.txt_valid.tsv'
+
     print("\n\t____-----Get Data-----____")
-    print(f'\ttrain: {train_data}')
-    print(f'\ttest: {test_data}')
-    print(f'\tvalid: {valid_data}')
+    print(f'\ttrain: {train_data_}')
+    print(f'\ttest: {test_data_}')
+    print(f'\tvalid: {valid_data_}')
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     gpt_init_token = gpt_vocab[gpt_vocab.bos_token]
@@ -72,7 +73,7 @@ def load_data(args, gpt_tokenizer, gpt_vocab):
                         batch_first=True)
 
     train_data, test_data, valid_data = TabularDataset.splits(
-            path=args.data_dir, train=train_data, test=test_data, validation=valid_data, format='tsv',
+            path=args.data_dir, train=train_data_, test=test_data_, validation=valid_data_, format='tsv',
             fields=[('que', Question), ('ans', Answer)], skip_header=False
         )
 
@@ -80,7 +81,7 @@ def load_data(args, gpt_tokenizer, gpt_vocab):
     test_loader = BucketIterator(dataset=test_data, batch_size=args.batch_size, device=device, shuffle=True)
     valid_loader = BucketIterator(dataset=valid_data, batch_size=args.batch_size, device=device, shuffle=True)
 
-    return Question, Answer, train_loader, test_loader, valid_loader, pad_token_idx, gpt_pad_token, bert_tokenizer, data_file_front, gpt_init_token, gpt_eos_token
+    return train_loader, test_loader, valid_loader, pad_token_idx, gpt_pad_token, bert_tokenizer, data_file_front, gpt_init_token, gpt_eos_token
 
 if __name__ == "__main__":
     print("__main__ data_loader")

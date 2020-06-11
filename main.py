@@ -5,34 +5,39 @@ import argparse
 import torch.nn as nn
 import torch.optim as optim
 from generation import inference
+from tensorboardX import SummaryWriter
 from data_loader import load_data, prepro
 from transformer_based_decoder import Transformer
-from matrix import acc, epoch_time, test_time_visual
 from gpt_model import GPT2, gpt_vocab, gpt_tokenizer
+from matrix import acc, epoch_time, test_time_visual
 from utils import get_target, get_dec_inputs, get_segment_ids_vaild_len, gen_attention_mask
 
-
+SEED = 1234
+torch.manual_seed(SEED)
+torch.backends.cudnn.deterministic = True
 
 def define_args(parser):
     parser.add_argument('--max_len', type=int, default=16)
     parser.add_argument('--batch_size', type=int, default=256)
-    parser.add_argument('--num_epochs', type=int, default=15)
-    parser.add_argument('--lr', type=float, default=0.005)  # 256 0.001
+    parser.add_argument('--num_epochs', type=int, default=40)
+    parser.add_argument('--lr', type=float, default=0.0005)  # 256 0.001
     parser.add_argument('--patience', type=int, default=5)
     parser.add_argument('--d_model', type=int, default=768)  # for tran
     parser.add_argument('--n_layers', type=int, default=12)
     parser.add_argument('--n_heads', type=int, default=12)
     parser.add_argument('--train_', type=str, default='True')
     parser.add_argument('--test_', type=str, default='True')
-    parser.add_argument('--data_dir', type=str, default='./aihub_category')
+    parser.add_argument('--data_dir', type=str, default='./aihubdata')
     args = parser.parse_args()
     return args
 
-
+iteration = 0
 def train(model, gpt_model, iterator, optimizer, criterion):
     total_loss = 0
     iter_num = 0
     train_acc = 0
+    global iteration
+
     model.train()
     gpt_model.eval()
 
@@ -50,7 +55,7 @@ def train(model, gpt_model, iterator, optimizer, criterion):
 
         with torch.no_grad():
             dec_inputs = gpt_model(dec_inputs)
-
+       
         segment_ids, valid_len = get_segment_ids_vaild_len(enc_inputs, pad_token_idx)
         attention_mask = gen_attention_mask(enc_inputs, valid_len)
 
@@ -66,7 +71,12 @@ def train(model, gpt_model, iterator, optimizer, criterion):
             tr_acc = acc(outputs, target_, gpt_pad_token)
         train_acc += tr_acc
 
-        # test_time_visual(args, enc_inputs, outputs, target_, bert_tokenizer, gpt_vocab)
+        if step % 2 == 0:
+            total_train_loss.append(total_loss.data.cpu().numpy()/iter_num)
+            iteration_list.append(iteration)
+            iteration += 1
+
+        #test_time_visual(args, enc_inputs, outputs, target_, bert_tokenizer, gpt_vocab)
     return total_loss.data.cpu().numpy() / iter_num, train_acc.data.cpu().numpy() / iter_num
 
 
@@ -100,6 +110,7 @@ def valid(model, gpt_model, iterator, optimizer, criterion):
             total_loss += loss
             iter_num += 1
             te_acc = acc(outputs, target_, gpt_pad_token)
+            print("$$ valid")
             test_time_visual(args, enc_inputs, outputs, target_, bert_tokenizer, gpt_vocab)
             test_acc += te_acc
 
@@ -136,13 +147,14 @@ def test(model, gpt_model, iterator, optimizer, criterion):
             total_loss += loss
             iter_num += 1
             te_acc = acc(outputs, target_, gpt_pad_token)
-            test_time_visual(args, enc_inputs, outputs, target_, bert_tokenizer, gpt_vocab)
+            #print("$$ test")
+            #test_time_visual(args, enc_inputs, outputs, target_, bert_tokenizer, gpt_vocab)
             test_acc += te_acc
 
         return total_loss.data.cpu().numpy() / iter_num, test_acc.data.cpu().numpy() / iter_num
 
 
-def main(Que, Ans, train_loader, test_loader, valid_loader):
+def main(train_loader_, test_loader_, valid_loader_):
     early_stop_check = 0
 
     for idx, (key, value) in enumerate(args.__dict__.items()):
@@ -158,7 +170,7 @@ def main(Que, Ans, train_loader, test_loader, valid_loader):
     optimizer = optim.Adam(transformer_model.parameters(), lr=args.lr)
 
     best_valid_loss = float('inf')
-    sorted_path = f'./output_dir/{data_file_front}.pt'
+    sorted_path = f'./output_dir/{data_file_front}_bertLearn.pt'
 
     gpt_model = GPT2()
 
@@ -168,17 +180,17 @@ def main(Que, Ans, train_loader, test_loader, valid_loader):
 
             # train, validation
             train_loss, train_acc = train(
-                transformer_model, gpt_model, train_loader, optimizer, criterion)
+                transformer_model, gpt_model, train_loader_, optimizer, criterion)
 
             valid_loss, valid_acc = valid(
-                transformer_model, gpt_model, valid_loader, optimizer, criterion)
+                transformer_model, gpt_model, test_loader_, optimizer, criterion)
 
             # time cal
             end_time = time.time()
             epoch_mins, epoch_secs = epoch_time(start_time, end_time)
 
             if early_stop_check == args.patience:
-                print("Early stopping")
+                print("\nEarly stopping")
                 break
 
             # 전에 학습된 loss 보다 현재 loss 가 더 낮을시 모델 저장.
@@ -195,26 +207,37 @@ def main(Que, Ans, train_loader, test_loader, valid_loader):
             print(f'\t==Train Loss: {train_loss:.3f} | Train acc: {train_acc:.3f}==')
             print(f'\t==Valid Loss: {valid_loss:.3f} | Valid acc: {valid_acc:.3f}==\n')
 
+    for i in range(len(total_train_loss)):
+        summary.add_scalar('loss/loss_tr', total_train_loss[i], iteration_list[i])
+
     if args.test_ == 'True':
         transformer_model = Transformer(cache_dir, args).cuda()
         transformer_model.load_state_dict(torch.load(sorted_path))
 
         test_loss, test_acc = test(
-            transformer_model, gpt_model, test_loader, optimizer, criterion)
+            transformer_model, gpt_model, valid_loader_, optimizer, criterion)
 
         # print loss and acc
         print(f'\n\t==Test loss: {test_loss:.3f} | Test acc: {test_acc:.3f}==\n')
+        first_check = 0
 
         while (True):
-            inference(transformer_model, gpt_model, gpt_vocab, args)
+            inference(transformer_model, gpt_model, gpt_vocab, args, data_file_front, first_check)
+            first_check = 1
             print("\n")
+
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     args = define_args(parser)
+    summary = SummaryWriter('runs/gpt_bert')
     cache_dir = './cache_dir'
+    iteration_list = []
+    total_train_loss = []
+
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-    Que, Ans, train_loader, test_loader, valid_loader, pad_token_idx, gpt_pad_token, bert_tokenizer, data_file_front, gpt_init_token, gpt_eos_token = \
+    train_loader, test_loader, valid_loader, pad_token_idx, gpt_pad_token, bert_tokenizer, data_file_front, gpt_init_token, gpt_eos_token = \
         load_data(args, gpt_tokenizer, gpt_vocab)
-    main(Que, Ans, train_loader, test_loader, valid_loader)
+
+    main(train_loader, test_loader, valid_loader)
