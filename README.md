@@ -8,6 +8,7 @@ install konlpy -> https://konlpy.org/ko/stable/install/
 ```ruby
 git clone https://github.com/BM-K/Dialogue-Generation-BERT-GPT2-Korean.git
 cd Dialogue-Generation-BERT-GPT2-Korean
+git clone https://github.com/SKT-AI/KoGPT2.git
 pip install -r requirements_gpt.txt
 python main.py
 ```
