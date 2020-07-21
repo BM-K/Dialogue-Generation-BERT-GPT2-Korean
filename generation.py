@@ -1,3 +1,4 @@
+import math
 import copy
 import torch
 from konlpy.tag import Mecab
@@ -110,7 +111,7 @@ def infer_test_set(model, gpt_model, gpt_vocab, args, data_file_front):
     all_len = all_val_len
     all_val_len = math.ceil(all_val_len / args.batch_size)
     
-    for step in range(len(keyword)):
+    for step in range(all_val_len):
         batch_step=0
         
         if step+1 == all_val_len:
