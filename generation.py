@@ -108,6 +108,7 @@ def infer_test_set(model, gpt_model, gpt_vocab, args, data_file_front):
     
     if args.useKey == 'True':
         keyword = keyword_loader(args, 'test')
+      
     all_len = all_val_len
     all_val_len = math.ceil(all_val_len / args.batch_size)
     
@@ -149,11 +150,11 @@ def infer_test_set(model, gpt_model, gpt_vocab, args, data_file_front):
                     dec_in = gpt_model(dec_inputs.cpu())
                 
                 if args.useKey == 'True' or args.useKeyLayer == 'True':
-                    y_pred = model(enc_inputs, dec_in, segment_ids, attention_mask [keyword[step][batch_step]])
+                    y_pred = model(enc_inputs, dec_in, segment_ids, attention_mask, [keyword[step][batch_step]])
                 else:
                     y_pred = model(enc_inputs, dec_in, segment_ids, attention_mask, None)
                 y_pred_ids = y_pred.max(dim=-1)[1]
-
+                
                 if (y_pred_ids[-1] == gpt_eos_token):
                     y_pred_ids = y_pred_ids.squeeze(0).cpu()
                     for idx in range(len(y_pred_ids)):
