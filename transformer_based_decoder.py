@@ -148,7 +148,7 @@ class Transformer(nn.Module):
             if keyword_ is not None:
                 bert_encoding_vec = keyword(self.args, bert_encoding_vec, keyword_)
         
-        dec_outputs = self.decoder(dec_inputs, bert_encoding_vec, )#keyword) 
+        dec_outputs = self.decoder(dec_inputs, bert_encoding_vec)
         dec_logits = self.projection(dec_outputs)  # dec_logits : [batch_size x src_vocab_size x tgt_vocab_size]
         return dec_logits.view(-1, dec_logits.size(-1))
 

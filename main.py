@@ -5,7 +5,6 @@ import argparse
 import torch.nn as nn
 import torch.optim as optim
 from generation import inference
-from tensorboardX import SummaryWriter
 from data_loader import load_data, prepro
 from keyword_matrix import keyword_loader
 from transformer_based_decoder import Transformer
@@ -58,7 +57,10 @@ def train(model, gpt_model, iterator, optimizer, criterion, args):
         optimizer.zero_grad()
 
         enc_inputs = batch.que
-
+        print(enc_inputs)
+        print(batch.ans)
+       
+        exit()
         copy_dec_inputs = copy.deepcopy(batch.ans)
         copy_dec_target = copy.deepcopy(batch.ans)
 
@@ -76,7 +78,6 @@ def train(model, gpt_model, iterator, optimizer, criterion, args):
             outputs = model(enc_inputs, dec_inputs, segment_ids, attention_mask, keyword[step])
         else:
             outputs = model(enc_inputs, dec_inputs, segment_ids, attention_mask, None)
-        
         loss = criterion(outputs, target_)
 
         loss.backward()
@@ -103,7 +104,7 @@ def valid(model, gpt_model, iterator, optimizer, criterion, args):
     model.eval()
     gpt_model.eval()
 
-    if useKey == 'Ture':
+    if args.useKey == 'Ture':
         keyword = keyword_loader(args, 'valid')
 
     with torch.no_grad():
@@ -123,7 +124,7 @@ def valid(model, gpt_model, iterator, optimizer, criterion, args):
             segment_ids, valid_len = get_segment_ids_vaild_len(enc_inputs, pad_token_idx)
             attention_mask = gen_attention_mask(enc_inputs, valid_len)
             
-            if useKey == 'Ture':
+            if args.useKey == 'Ture':
                 outputs = model(enc_inputs, dec_inputs, segment_ids, attention_mask, keyword[step])
             else:
                 outputs = model(enc_inputs, dec_inputs, segment_ids, attention_mask, None)
@@ -198,8 +199,10 @@ def main(train_loader_, test_loader_, valid_loader_):
         transformer_model = Transformer_PALs(cache_dir, args).to(device)
     else:
         if args.useKeyLayer == 'Ture' and args.useKey == 'Ture':
+            print("layer 모델사용")
             transformer_model = Transformer_layer(cache_dir, args).to(device)
         else:
+            print("nokey 모델사용 or key")
             transformer_model = Transformer(cache_dir, args).to(device)
 
     criterion = nn.CrossEntropyLoss(ignore_index=gpt_pad_token)
@@ -259,7 +262,7 @@ def main(train_loader_, test_loader_, valid_loader_):
                 transformer_model.load_state_dict(torch.load(sorted_path))
 
         test_loss, test_acc = test(
-            transformer_model, gpt_model, valid_loader_, optimizer, criterion)
+            transformer_model, gpt_model, valid_loader_, optimizer, criterion, args)
 
         #print loss and acc
         print(f'\n\t==Test loss: {test_loss:.3f} | Test acc: {test_acc:.3f}==\n')
@@ -281,7 +284,7 @@ def main_infer():
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     args = define_args(parser)
-    #summary = SummaryWriter('runs/gpt_bert')
+    
     cache_dir = './cache_dir'
     iteration_list = []
     total_train_loss = []
