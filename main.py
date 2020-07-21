@@ -49,7 +49,7 @@ def train(model, gpt_model, iterator, optimizer, criterion, args):
     model.train()
     gpt_model.eval()
 
-    if args.useKey == 'Ture':
+    if args.useKey == 'True':
         keyword = keyword_loader(args, 'train')
     
     for step, batch in enumerate(iterator):
@@ -71,7 +71,7 @@ def train(model, gpt_model, iterator, optimizer, criterion, args):
         segment_ids, valid_len = get_segment_ids_vaild_len(enc_inputs, pad_token_idx)
         attention_mask = gen_attention_mask(enc_inputs, valid_len)
         
-        if args.useKey == 'Ture':
+        if args.useKey == 'True':
             outputs = model(enc_inputs, dec_inputs, segment_ids, attention_mask, keyword[step])
         else:
             outputs = model(enc_inputs, dec_inputs, segment_ids, attention_mask, None)
@@ -101,7 +101,7 @@ def valid(model, gpt_model, iterator, optimizer, criterion, args):
     model.eval()
     gpt_model.eval()
 
-    if args.useKey == 'Ture':
+    if args.useKey == 'True':
         keyword = keyword_loader(args, 'valid')
 
     with torch.no_grad():
@@ -121,7 +121,7 @@ def valid(model, gpt_model, iterator, optimizer, criterion, args):
             segment_ids, valid_len = get_segment_ids_vaild_len(enc_inputs, pad_token_idx)
             attention_mask = gen_attention_mask(enc_inputs, valid_len)
             
-            if args.useKey == 'Ture':
+            if args.useKey == 'True':
                 outputs = model(enc_inputs, dec_inputs, segment_ids, attention_mask, keyword[step])
             else:
                 outputs = model(enc_inputs, dec_inputs, segment_ids, attention_mask, None)
@@ -145,7 +145,7 @@ def test(model, gpt_model, iterator, optimizer, criterion, args):
     model.eval()
     gpt_model.eval()
 
-    if args.useKey == 'Ture':
+    if args.useKey == 'True':
         keyword = keyword_loader(args, 'test')
 
     with torch.no_grad():
@@ -165,7 +165,7 @@ def test(model, gpt_model, iterator, optimizer, criterion, args):
             segment_ids, valid_len = get_segment_ids_vaild_len(enc_inputs, pad_token_idx)
             attention_mask = gen_attention_mask(enc_inputs, valid_len)
             
-            if args.useKey == 'Ture':
+            if args.useKey == 'True':
                 outputs = model(enc_inputs, dec_inputs, segment_ids, attention_mask, keyword[step])
             else:
                 outputs = model(enc_inputs, dec_inputs, segment_ids, attention_mask, None)
@@ -195,7 +195,7 @@ def main(train_loader_, test_loader_, valid_loader_):
     if args.PALs_ == 'True':
         transformer_model = Transformer_PALs(cache_dir, args).to(device)
     else:
-        if args.useKeyLayer == 'Ture' and args.useKey == 'Ture':
+        if args.useKeyLayer == 'True' and args.useKey == 'True':
             transformer_model = Transformer_layer(cache_dir, args).to(device)
         else:
             transformer_model = Transformer(cache_dir, args).to(device)
@@ -204,7 +204,7 @@ def main(train_loader_, test_loader_, valid_loader_):
     optimizer = optim.Adam(transformer_model.parameters(), lr=args.lr)
 
     best_valid_loss = float('inf')
-    sorted_path = f'./output_dir/{data_file_front}_nokey.pt'
+    sorted_path = f'./output_dir/{data_file_front}_key.pt'
 
     gpt_model = GPT2()
 

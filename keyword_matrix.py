@@ -87,7 +87,7 @@ def keyword_loader(args, task):
     category = 'entertain_keyword'
 
     with open(f'domain_keyword/{category}.{task}', "r", encoding="utf-8-sig") as f:
-        #print(f'--read keyword-- \n{category}_keyword/{category}.{task}\n')
+        print(f'--read keyword-- \n/{category}.{task}\n')
         lines = f.readlines()
         lines_len = len(lines)
         for line in lines:
