@@ -1,11 +1,10 @@
 import torch
 import numpy as np
 import torch.nn as nn
-from transformers import BertModel
-#from transformers import BertModel, BertConfig
-from keyword_matrix_ENG import keyword, for_addition_layer
+from transformers import BertModel, BertConfig
+from keyword_matrix import keyword, for_addition_layer
 
-gpt_vocab_size = 50260
+gpt_vocab_size = 50000
 d_ff = 2048  # FeedForward dimension
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
@@ -129,39 +128,21 @@ class ETRI_KOBERT(nn.Module):
         top_vec, _ = self.model(input_ids=x, token_type_ids=segs, attention_mask=mask)
         #top_vec = self.li1(top_vec)
         return top_vec
-
-
-class ENG_BERT(nn.Module):
-    def __init__(self, bert, output_dim, dropout):
-
-        super().__init__()
-
-        self.bert = bert
-
-        embedding_dim = bert.config.to_dict()['hidden_size']
-
-        self.fc = nn.Linear(embedding_dim, output_dim)
-
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self, text):
-        # text = [batch size, sent len]
-        embedded = self.dropout(self.bert(text)[0])
-
-        return embedded
-
+    
     
 class Transformer_layer(nn.Module):
     def __init__(self, cache_dir, args):
         super(Transformer_layer, self).__init__()
         self.args = args
-        bert = BertModel.from_pretrained('bert-base-uncased')
-        self.bert = ENG_BERT(bert, 768 , 0.1)
+        self.bert = ETRI_KOBERT(cache_dir, args)
         self.decoder = Decoder(args)
         self.projection = nn.Linear(args.d_model, gpt_vocab_size, bias=False)
+        bert_config = BertConfig(self.bert.model.config.vocab_size, hidden_size=768, 
+                num_hidden_layers=12, num_attention_heads=12)
+        self.bert.model = BertModel(bert_config)
 
-    def forward(self, enc_inputs, dec_inputs, keyword_):
-        bert_encoding_vec = self.bert(enc_inputs)
+    def forward(self, enc_inputs, dec_inputs, segment_ids, attn_mask, keyword_):
+        bert_encoding_vec = self.bert(enc_inputs, segment_ids, attn_mask)
 
         if self.args.useKey == 'True' and self.args.useKeyLayer == 'True':
             keyword = for_addition_layer(self.args, keyword_)
