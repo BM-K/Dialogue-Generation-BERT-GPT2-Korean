@@ -15,8 +15,5 @@ class GPT2(nn.Module):
         self.gpt_model, self.vocab = get_pytorch_kogpt2_model()
 
     def forward(self, inputs):
-        pred = self.get_gpt_hidden(inputs)
+        pred = self.gpt_model(inputs)
         return pred.to('cuda')
-
-    def get_gpt_hidden(self, inputs):
-        return self.gpt_model(inputs)
