@@ -2,8 +2,11 @@ import torch
 import numpy as np
 import torch.nn as nn
 from transformers import BertModel, BertConfig
+from keyword_matrix import keyword, for_addition_layer
+
 gpt_vocab_size = 50000
 d_ff = 2048  # FeedForward dimension
+device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
 def get_sinusoid_encoding_table(n_position, d_model):
     def cal_angle(position, hid_idx):
@@ -89,11 +92,13 @@ class DecoderLayer(nn.Module):
     def __init__(self, args):
         super(DecoderLayer, self).__init__()
         self.dec_enc_attn = MultiheadAttention(args)
+        #self.dec_enc_keyword_attn = MultiheadAttention(args)
         self.pos_ffn = PoswiseFeedForwardNet(args)
 
     def forward(self, dec_inputs, enc_outputs, dec_self_attn_mask, dec_enc_attn_mask):
         dec_outputs, dec_enc_attn = self.dec_enc_attn(dec_inputs, enc_outputs, enc_outputs, dec_enc_attn_mask)
-        
+        #dec_outputs, _ = self.dec_enc_keyword_attn(dec_outputs, keyword, keyword, None)
+
         with torch.no_grad():
             dec_outputs = self.pos_ffn(dec_outputs)
             
@@ -104,7 +109,7 @@ class Decoder(nn.Module):
         super(Decoder, self).__init__()
         self.layers = nn.ModuleList([DecoderLayer(args) for _ in range(args.n_layers)])
 
-    def forward(self, dec_inputs, enc_outputs):  # dec_inputs : [batch_size x target_len]
+    def forward(self, dec_inputs, enc_outputs):#keyword):  # dec_inputs : [batch_size x target_len]
     
         for layer in self.layers:
             dec_outputs = \
@@ -126,6 +131,7 @@ class ETRI_KOBERT(nn.Module):
 class Transformer(nn.Module):
     def __init__(self, cache_dir, args):
         super(Transformer, self).__init__()
+        self.args = args
         self.bert = ETRI_KOBERT(cache_dir, args)
         self.decoder = Decoder(args)
         self.projection = nn.Linear(args.d_model, gpt_vocab_size, bias=False)
@@ -133,11 +139,16 @@ class Transformer(nn.Module):
                                  num_hidden_layers=12, num_attention_heads=12)
         self.bert.model = BertModel(bert_config)
 
-    def forward(self, enc_inputs, dec_inputs, segment_ids, attn_mask):
-        #with torch.no_grad():
+    def forward(self, enc_inputs, dec_inputs, segment_ids, attn_mask, keyword_):
         bert_encoding_vec = self.bert(enc_inputs, segment_ids, attn_mask)
         
-        dec_outputs = self.decoder(dec_inputs, bert_encoding_vec) 
+        #keyword = for_addition_layer(self.args, keyword_)
+        
+        with torch.no_grad():
+            if keyword_ is not None:
+                bert_encoding_vec = keyword(self.args, bert_encoding_vec, keyword_)
+        
+        dec_outputs = self.decoder(dec_inputs, bert_encoding_vec, )#keyword) 
         dec_logits = self.projection(dec_outputs)  # dec_logits : [batch_size x src_vocab_size x tgt_vocab_size]
         return dec_logits.view(-1, dec_logits.size(-1))
 

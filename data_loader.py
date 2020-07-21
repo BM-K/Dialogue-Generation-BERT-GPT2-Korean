@@ -19,14 +19,14 @@ pattern = '[^\w\s]'
 
 # tokenizer
 def prepro(text):
-    text = re.sub(pattern=pattern, repl='', string=text)
+    #text = re.sub(pattern=pattern, repl='', string=text)
     return text
 
 def load_data(args, gpt_tokenizer, gpt_vocab):
-    data_file_front = '2_beauty'
-    train_data_ = f'{data_file_front}_train.txt_train.tsv'
-    test_data_ = f'{data_file_front}_test.txt_test.tsv'
-    valid_data_ = f'{data_file_front}_valid.txt_valid.tsv'
+    data_file_front = '3_entertain'
+    train_data_ = f'{data_file_front}_train.txt.tsv'
+    test_data_ = f'{data_file_front}_test.txt.tsv'
+    valid_data_ = f'{data_file_front}_valid.txt.tsv'
 
     print("\n\t____-----Get Data-----____")
     print(f'\ttrain: {train_data_}')
@@ -72,14 +72,16 @@ def load_data(args, gpt_tokenizer, gpt_vocab):
                         fix_length=args.max_len,
                         batch_first=True)
 
+
     train_data, test_data, valid_data = TabularDataset.splits(
             path=args.data_dir, train=train_data_, test=test_data_, validation=valid_data_, format='tsv',
             fields=[('que', Question), ('ans', Answer)], skip_header=False
         )
 
-    train_loader = BucketIterator(dataset=train_data, batch_size=args.batch_size, device=device, shuffle=True)
-    test_loader = BucketIterator(dataset=test_data, batch_size=args.batch_size, device=device, shuffle=True)
-    valid_loader = BucketIterator(dataset=valid_data, batch_size=args.batch_size, device=device, shuffle=True)
+    train_loader = BucketIterator(dataset=train_data, batch_size=args.batch_size, device=device, shuffle=False)
+    test_loader = BucketIterator(dataset=test_data, batch_size=args.batch_size, device=device, shuffle=False)
+    valid_loader = BucketIterator(dataset=valid_data, batch_size=args.batch_size, device=device, shuffle=False)
+
 
     return train_loader, test_loader, valid_loader, pad_token_idx, gpt_pad_token, bert_tokenizer, data_file_front, gpt_init_token, gpt_eos_token
 

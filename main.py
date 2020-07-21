@@ -7,32 +7,41 @@ import torch.optim as optim
 from generation import inference
 from tensorboardX import SummaryWriter
 from data_loader import load_data, prepro
+from keyword_matrix import keyword_loader
 from transformer_based_decoder import Transformer
+from transformer_based_decoder_layer import Transformer_layer
 from gpt_model import GPT2, gpt_vocab, gpt_tokenizer
 from matrix import acc, epoch_time, test_time_visual
+from transformer_based_decoder_PALs import Transformer_PALs
 from utils import get_target, get_dec_inputs, get_segment_ids_vaild_len, gen_attention_mask
 
 SEED = 1234
 torch.manual_seed(SEED)
 torch.backends.cudnn.deterministic = True
 
+
 def define_args(parser):
-    parser.add_argument('--max_len', type=int, default=16)
-    parser.add_argument('--batch_size', type=int, default=256)
-    parser.add_argument('--num_epochs', type=int, default=40)
-    parser.add_argument('--lr', type=float, default=0.0005)  # 256 0.001
+    parser.add_argument('--max_len', type=int, default=32)
+    parser.add_argument('--batch_size', type=int, default=128)
+    parser.add_argument('--num_epochs', type=int, default=50)
+    parser.add_argument('--lr', type=float, default=0.0005)
     parser.add_argument('--patience', type=int, default=5)
-    parser.add_argument('--d_model', type=int, default=768)  # for tran
+    parser.add_argument('--d_model', type=int, default=768)
+    parser.add_argument('--hidden_size_aug', type=int, default=204)
     parser.add_argument('--n_layers', type=int, default=12)
     parser.add_argument('--n_heads', type=int, default=12)
     parser.add_argument('--train_', type=str, default='True')
     parser.add_argument('--test_', type=str, default='True')
-    parser.add_argument('--data_dir', type=str, default='./aihubdata')
+    parser.add_argument('--useKey', type=str, default='False')
+    parser.add_argument('--useKeyLayer', type=str, default='False')
+    parser.add_argument('--PALs_', type=str, default='False')
+    parser.add_argument('--data_dir', type=str, default='./domain_data')
     args = parser.parse_args()
     return args
 
+
 iteration = 0
-def train(model, gpt_model, iterator, optimizer, criterion):
+def train(model, gpt_model, iterator, optimizer, criterion, args):
     total_loss = 0
     iter_num = 0
     train_acc = 0
@@ -41,7 +50,11 @@ def train(model, gpt_model, iterator, optimizer, criterion):
     model.train()
     gpt_model.eval()
 
+    if args.useKey == 'Ture':
+        keyword = keyword_loader(args, 'train')
+    
     for step, batch in enumerate(iterator):
+        
         optimizer.zero_grad()
 
         enc_inputs = batch.que
@@ -58,8 +71,12 @@ def train(model, gpt_model, iterator, optimizer, criterion):
        
         segment_ids, valid_len = get_segment_ids_vaild_len(enc_inputs, pad_token_idx)
         attention_mask = gen_attention_mask(enc_inputs, valid_len)
-
-        outputs = model(enc_inputs, dec_inputs, segment_ids, attention_mask)
+        
+        if args.useKey == 'Ture':
+            outputs = model(enc_inputs, dec_inputs, segment_ids, attention_mask, keyword[step])
+        else:
+            outputs = model(enc_inputs, dec_inputs, segment_ids, attention_mask, None)
+        
         loss = criterion(outputs, target_)
 
         loss.backward()
@@ -76,16 +93,18 @@ def train(model, gpt_model, iterator, optimizer, criterion):
             iteration_list.append(iteration)
             iteration += 1
 
-        #test_time_visual(args, enc_inputs, outputs, target_, bert_tokenizer, gpt_vocab)
     return total_loss.data.cpu().numpy() / iter_num, train_acc.data.cpu().numpy() / iter_num
 
 
-def valid(model, gpt_model, iterator, optimizer, criterion):
+def valid(model, gpt_model, iterator, optimizer, criterion, args):
     total_loss = 0
     iter_num = 0
     test_acc = 0
     model.eval()
     gpt_model.eval()
+
+    if useKey == 'Ture':
+        keyword = keyword_loader(args, 'valid')
 
     with torch.no_grad():
         for step, batch in enumerate(iterator):
@@ -103,26 +122,33 @@ def valid(model, gpt_model, iterator, optimizer, criterion):
 
             segment_ids, valid_len = get_segment_ids_vaild_len(enc_inputs, pad_token_idx)
             attention_mask = gen_attention_mask(enc_inputs, valid_len)
-
-            outputs = model(enc_inputs, dec_inputs, segment_ids, attention_mask)
+            
+            if useKey == 'Ture':
+                outputs = model(enc_inputs, dec_inputs, segment_ids, attention_mask, keyword[step])
+            else:
+                outputs = model(enc_inputs, dec_inputs, segment_ids, attention_mask, None)
+            
             loss = criterion(outputs, target_)
 
             total_loss += loss
             iter_num += 1
             te_acc = acc(outputs, target_, gpt_pad_token)
-            print("$$ valid")
+        
             test_time_visual(args, enc_inputs, outputs, target_, bert_tokenizer, gpt_vocab)
             test_acc += te_acc
 
         return total_loss.data.cpu().numpy() / iter_num, test_acc.data.cpu().numpy() / iter_num
 
 
-def test(model, gpt_model, iterator, optimizer, criterion):
+def test(model, gpt_model, iterator, optimizer, criterion, args):
     total_loss = 0
     iter_num = 0
     test_acc = 0
     model.eval()
     gpt_model.eval()
+
+    if args.useKey == 'Ture':
+        keyword = keyword_loader(args, 'test')
 
     with torch.no_grad():
         for step, batch in enumerate(iterator):
@@ -140,15 +166,18 @@ def test(model, gpt_model, iterator, optimizer, criterion):
 
             segment_ids, valid_len = get_segment_ids_vaild_len(enc_inputs, pad_token_idx)
             attention_mask = gen_attention_mask(enc_inputs, valid_len)
+            
+            if args.useKey == 'Ture':
+                outputs = model(enc_inputs, dec_inputs, segment_ids, attention_mask, keyword[step])
+            else:
+                outputs = model(enc_inputs, dec_inputs, segment_ids, attention_mask, None)
 
-            outputs = model(enc_inputs, dec_inputs, segment_ids, attention_mask)
             loss = criterion(outputs, target_)
 
             total_loss += loss
             iter_num += 1
             te_acc = acc(outputs, target_, gpt_pad_token)
-            #print("$$ test")
-            #test_time_visual(args, enc_inputs, outputs, target_, bert_tokenizer, gpt_vocab)
+
             test_acc += te_acc
 
         return total_loss.data.cpu().numpy() / iter_num, test_acc.data.cpu().numpy() / iter_num
@@ -165,12 +194,19 @@ def main(train_loader_, test_loader_, valid_loader_):
         else:
             print("\t", key, ":", value)
 
-    transformer_model = Transformer(cache_dir, args).cuda()
+    if args.PALs_ == 'True':
+        transformer_model = Transformer_PALs(cache_dir, args).to(device)
+    else:
+        if args.useKeyLayer == 'Ture' and args.useKey == 'Ture':
+            transformer_model = Transformer_layer(cache_dir, args).to(device)
+        else:
+            transformer_model = Transformer(cache_dir, args).to(device)
+
     criterion = nn.CrossEntropyLoss(ignore_index=gpt_pad_token)
     optimizer = optim.Adam(transformer_model.parameters(), lr=args.lr)
 
     best_valid_loss = float('inf')
-    sorted_path = f'./output_dir/{data_file_front}_bertLearn.pt'
+    sorted_path = f'./output_dir/{data_file_front}_nokey.pt'
 
     gpt_model = GPT2()
 
@@ -180,10 +216,10 @@ def main(train_loader_, test_loader_, valid_loader_):
 
             # train, validation
             train_loss, train_acc = train(
-                transformer_model, gpt_model, train_loader_, optimizer, criterion)
+                transformer_model, gpt_model, train_loader_, optimizer, criterion, args)
 
             valid_loss, valid_acc = valid(
-                transformer_model, gpt_model, test_loader_, optimizer, criterion)
+                transformer_model, gpt_model, test_loader_, optimizer, criterion, args)
 
             # time cal
             end_time = time.time()
@@ -207,17 +243,25 @@ def main(train_loader_, test_loader_, valid_loader_):
             print(f'\t==Train Loss: {train_loss:.3f} | Train acc: {train_acc:.3f}==')
             print(f'\t==Valid Loss: {valid_loss:.3f} | Valid acc: {valid_acc:.3f}==\n')
 
-    for i in range(len(total_train_loss)):
-        summary.add_scalar('loss/loss_tr', total_train_loss[i], iteration_list[i])
+    #for i in range(len(total_train_loss)):
+    #    summary.add_scalar('loss/loss_tr', total_train_loss[i], iteration_list[i])
 
     if args.test_ == 'True':
-        transformer_model = Transformer(cache_dir, args).cuda()
-        transformer_model.load_state_dict(torch.load(sorted_path))
+        if args.PALs_ == 'True':
+            transformer_model = Transformer_PALs(cache_dir, args).to(device)
+            transformer_model.load_state_dict(torch.load(sorted_path))
+        else:
+            if args.useKeyLayer == 'True' and args.useKey == 'True':
+                transformer_model = Transformer_layer(cache_dir, args).to(device)
+                transformer_model.load_state_dict(torch.load(sorted_path))
+            else:
+                transformer_model = Transformer(cache_dir, args).to(device)
+                transformer_model.load_state_dict(torch.load(sorted_path))
 
         test_loss, test_acc = test(
             transformer_model, gpt_model, valid_loader_, optimizer, criterion)
 
-        # print loss and acc
+        #print loss and acc
         print(f'\n\t==Test loss: {test_loss:.3f} | Test acc: {test_acc:.3f}==\n')
         first_check = 0
 
@@ -226,18 +270,24 @@ def main(train_loader_, test_loader_, valid_loader_):
             first_check = 1
             print("\n")
 
-
+def main_infer():
+    model = Transformer(cache_dir, args).to(device)
+    gpt_model = GPT2()
+    sorted_path = f'./output_dir/{data_file_front}_nokey.pt'
+    model.load_state_dict(torch.load(sorted_path))
+    
+    inference(transformer_model, gpt_model, gpy_vocab, args, data_file_front, first_check)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     args = define_args(parser)
-    summary = SummaryWriter('runs/gpt_bert')
+    #summary = SummaryWriter('runs/gpt_bert')
     cache_dir = './cache_dir'
     iteration_list = []
     total_train_loss = []
 
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-    train_loader, test_loader, valid_loader, pad_token_idx, gpt_pad_token, bert_tokenizer, data_file_front, gpt_init_token, gpt_eos_token = \
-        load_data(args, gpt_tokenizer, gpt_vocab)
+    
+    train_loader, test_loader, valid_loader, pad_token_idx, gpt_pad_token, bert_tokenizer, data_file_front, gpt_init_token, gpt_eos_token = load_data(args, gpt_tokenizer, gpt_vocab)
 
     main(train_loader, test_loader, valid_loader)
