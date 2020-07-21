@@ -57,10 +57,7 @@ def train(model, gpt_model, iterator, optimizer, criterion, args):
         optimizer.zero_grad()
 
         enc_inputs = batch.que
-        print(enc_inputs)
-        print(batch.ans)
-       
-        exit()
+        
         copy_dec_inputs = copy.deepcopy(batch.ans)
         copy_dec_target = copy.deepcopy(batch.ans)
 
@@ -199,10 +196,8 @@ def main(train_loader_, test_loader_, valid_loader_):
         transformer_model = Transformer_PALs(cache_dir, args).to(device)
     else:
         if args.useKeyLayer == 'Ture' and args.useKey == 'Ture':
-            print("layer 모델사용")
             transformer_model = Transformer_layer(cache_dir, args).to(device)
         else:
-            print("nokey 모델사용 or key")
             transformer_model = Transformer(cache_dir, args).to(device)
 
     criterion = nn.CrossEntropyLoss(ignore_index=gpt_pad_token)
