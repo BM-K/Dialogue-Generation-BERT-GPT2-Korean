@@ -9,6 +9,10 @@ install konlpy -> https://konlpy.org/ko/stable/install/
 git clone https://github.com/BM-K/Dialogue-Generation-BERT-GPT2-Korean.git
 cd Dialogue-Generation-BERT-GPT2-Korean
 git clone https://github.com/SKT-AI/KoGPT2.git
+
+mv modeling_gpt2.py {/your transformers lib}
+＊ your transformers lib example => /opt/conda/lib/python3.7/site-packages/transformers/
+
 pip install -r requirements_gpt.txt
 python main.py
 ```
