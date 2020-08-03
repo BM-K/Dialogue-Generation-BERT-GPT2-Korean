@@ -11,7 +11,6 @@ from transformer_based_decoder import Transformer
 from transformer_based_decoder_layer import Transformer_layer
 from gpt_model import GPT2, gpt_vocab, gpt_tokenizer
 from matrix import acc, epoch_time, test_time_visual
-from transformer_based_decoder_PALs import Transformer_PALs
 from utils import get_target, get_dec_inputs, get_segment_ids_vaild_len, gen_attention_mask
 
 SEED = 1234
