@@ -22,7 +22,7 @@ def define_args(parser):
     parser.add_argument('--max_len', type=int, default=32)
     parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--num_epochs', type=int, default=50)
-    parser.add_argument('--lr', type=float, default=0.0005)
+    parser.add_argument('--lr', type=float, default=0.001)
     parser.add_argument('--patience', type=int, default=5)
     parser.add_argument('--d_model', type=int, default=768)
     parser.add_argument('--hidden_size_aug', type=int, default=204)
