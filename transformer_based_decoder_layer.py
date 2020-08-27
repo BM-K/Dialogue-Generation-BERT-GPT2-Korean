@@ -3,6 +3,9 @@ import numpy as np
 import torch.nn as nn
 from transformers import BertModel, BertConfig
 from keyword_matrix import keyword, for_addition_layer
+from KoGPT2.kogpt2.pytorch_kogpt2 import get_pytorch_kogpt2_model
+from KoGPT2.kogpt2.utils import get_tokenizer
+from gluonnlp.data import SentencepieceTokenizer
 
 gpt_vocab_size = 50000
 d_ff = 2048  # FeedForward dimension
@@ -23,7 +26,7 @@ def get_attn_pad_mask(seq_q, seq_k):
     batch_size, len_q = seq_q.size()
     batch_size, len_k = seq_k.size()
     # eq(zero) is PAD token
-    pad_attn_mask = seq_k.data.eq(3).unsqueeze(1)  # PAD = 3 이므로 eq(3)
+    pad_attn_mask = seq_k.data.eq(0).unsqueeze(1)  # PAD = 0 이므로 eq(3)
     # batch_size x 1 x len_k(=len_q), one is masking
     return pad_attn_mask.expand(batch_size, len_q, len_k)  # batch_size x len_q x len_k
 
@@ -40,6 +43,10 @@ class ScaledDotProductAttention(nn.Module):
 
     def forward(self, Q, K, V, attn_mask=None):
         scores = torch.matmul(Q, K.transpose(-1, -2)) / np.sqrt(self.d_k)  # scores : [batch_size x n_heads x len_q(=len_k) x len_k(=len_q)
+
+        if attn_mask is not None:
+            scores.masked_fill_(attn_mask, -1e9)
+
         # padding 부분을 -1000000 처럼 큰 음수값을 할당하여 softmax 후 해당 값을 0으로 나오게 만들어야함.
         attn = nn.Softmax(dim=-1)(scores)
         context = torch.matmul(attn, V)
@@ -94,27 +101,41 @@ class DecoderLayer(nn.Module):
         self.dec_enc_attn = MultiheadAttention(args)
         self.dec_enc_keyword_attn = MultiheadAttention(args)
         self.pos_ffn = PoswiseFeedForwardNet(args)
+        self.gpt_model, self.vocab = get_pytorch_kogpt2_model()
 
-    def forward(self, dec_inputs, enc_outputs, keyword, dec_self_attn_mask, dec_enc_attn_mask):
-                
+    def forward(self, dec_inputs, enc_outputs, keyword, dec_enc_attn_mask, first_check, position):
+       
+        dec_inputs, position = self.gpt_model(input_ids=dec_inputs.to(device), first_check=first_check, position=position)
+    
         dec_outputs, dec_enc_attn = self.dec_enc_attn(dec_inputs, enc_outputs, enc_outputs, dec_enc_attn_mask)
+        
         dec_outputs, _ = self.dec_enc_keyword_attn(dec_outputs, keyword, keyword, None)
         
-        with torch.no_grad():
-            dec_outputs = self.pos_ffn(dec_outputs)
+        dec_outputs = self.pos_ffn(dec_outputs)
         
-        return dec_outputs  #, dec_self_attn, dec_enc_attn
+        return dec_outputs, position  #, dec_self_attn, dec_enc_attn
 
 class Decoder(nn.Module):
     def __init__(self, args):
         super(Decoder, self).__init__()
         self.layers = nn.ModuleList([DecoderLayer(args) for _ in range(args.n_layers)])
 
-    def forward(self, dec_inputs, enc_outputs, keyword):  # dec_inputs : [batch_size x target_len]
-    
-        for layer in self.layers:
-            dec_outputs = \
-                layer(dec_inputs, enc_outputs, keyword, dec_self_attn_mask=None, dec_enc_attn_mask=None)
+    def forward(self, dec_inputs, enc_inputs, enc_outputs, keyword):  # dec_inputs : [batch_size x target_len]
+        
+        print(dec_inputs)
+        print(enc_inputs)
+        dec_enc_attn_mask = get_attn_pad_mask(dec_inputs, enc_inputs)
+        
+        print(dec_enc_attn_mask)
+        print(dec_enc_attn_mask.size())
+        exit()
+
+        for step, layer in enumerate(self.layers):
+
+            if step==0:
+                dec_outputs, position = layer(dec_inputs, enc_outputs, keyword, dec_enc_attn_mask=None, first_check=True, position=None)
+            else:
+                dec_outputs, position = layer(dec_outputs, enc_outputs, keyword, dec_enc_attn_mask=None, first_check=False, position=position)
             
         return dec_outputs
 
@@ -150,7 +171,7 @@ class Transformer_layer(nn.Module):
             print("if you want to use key layer, args.useKey option and args.useKeyLayer option are True")
             exit()
 
-        dec_outputs = self.decoder(dec_inputs, bert_encoding_vec, keyword)
+        dec_outputs = self.decoder(dec_inputs, enc_inputs, bert_encoding_vec, keyword)
         dec_logits = self.projection(dec_outputs)  # dec_logits : [batch_size x src_vocab_size x tgt_vocab_size]
         
         return dec_logits.view(-1, dec_logits.size(-1))

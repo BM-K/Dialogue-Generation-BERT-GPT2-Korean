@@ -38,6 +38,7 @@ def load_data(args, gpt_tokenizer, gpt_vocab):
     gpt_pad_token = gpt_vocab[gpt_vocab.padding_token]
     gpt_eos_token = gpt_vocab[gpt_vocab.eos_token]
     gpt_unk_token = gpt_vocab[gpt_vocab.unknown_token]
+    print(pad_token_idx)
 
     # tokenizer bert
     def tokenizer_bert(text):

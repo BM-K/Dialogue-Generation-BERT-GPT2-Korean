@@ -4,6 +4,7 @@ import torch
 import argparse
 import torch.nn as nn
 import torch.optim as optim
+from transformers import AdamW
 from generation import inference
 from data_loader import load_data, prepro
 from keyword_matrix import keyword_loader
@@ -19,34 +20,45 @@ torch.backends.cudnn.deterministic = True
 
 
 def define_args(parser):
-    parser.add_argument('--max_len', type=int, default=32)
-    parser.add_argument('--batch_size', type=int, default=128)
-    parser.add_argument('--num_epochs', type=int, default=50)
-    parser.add_argument('--lr', type=float, default=0.001)
+    parser.add_argument('--max_len', type=int, default=64)
+    parser.add_argument('--batch_size', type=int, default=16)
+    parser.add_argument('--num_epochs', type=int, default=100)
+    parser.add_argument('--lr', type=float, default=0.00001)
     parser.add_argument('--patience', type=int, default=5)
     parser.add_argument('--d_model', type=int, default=768)
-    parser.add_argument('--hidden_size_aug', type=int, default=204)
     parser.add_argument('--n_layers', type=int, default=12)
     parser.add_argument('--n_heads', type=int, default=12)
     parser.add_argument('--train_', type=str, default='True')
     parser.add_argument('--test_', type=str, default='True')
     parser.add_argument('--useKey', type=str, default='False')
     parser.add_argument('--useKeyLayer', type=str, default='False')
-    parser.add_argument('--PALs_', type=str, default='False')
     parser.add_argument('--data_dir', type=str, default='./domain_data')
     args = parser.parse_args()
     return args
 
+def print_keyattn_exm(data, keyword, bert_tok, mean):
+    data = data[0]
+    keyword = keyword[0]
+    key_len = len(keyword)
+    for step, token in enumerate(data):
+        if step == key_len+1:
+            break
+        if step==0:
+            continue
+        if keyword[step-1] < mean:
+            continue
+        print(bert_tok.convert_ids_to_tokens([token]),"\t",keyword[step-1])
+
+    print("-------------")
 
 iteration = 0
-def train(model, gpt_model, iterator, optimizer, criterion, args):
+def train(model, iterator, optimizer, criterion, args, bert_tok):
     total_loss = 0
     iter_num = 0
     train_acc = 0
     global iteration
 
     model.train()
-    gpt_model.eval()
 
     if args.useKey == 'True':
         keyword = keyword_loader(args, 'train')
@@ -57,16 +69,15 @@ def train(model, gpt_model, iterator, optimizer, criterion, args):
 
         enc_inputs = batch.que
         
+        #print_keyattn_exm(enc_inputs, keyword[step], bert_tok, mean)
+
         copy_dec_inputs = copy.deepcopy(batch.ans)
         copy_dec_target = copy.deepcopy(batch.ans)
 
         dec_inputs = get_dec_inputs(copy_dec_inputs, gpt_pad_token, gpt_eos_token)
         target_ = get_target(copy_dec_target, gpt_pad_token)
         target_ = target_.view(-1)
-
-        with torch.no_grad():
-            dec_inputs = gpt_model(dec_inputs)
-       
+ 
         segment_ids, valid_len = get_segment_ids_vaild_len(enc_inputs, pad_token_idx)
         attention_mask = gen_attention_mask(enc_inputs, valid_len)
         
@@ -74,6 +85,7 @@ def train(model, gpt_model, iterator, optimizer, criterion, args):
             outputs = model(enc_inputs, dec_inputs, segment_ids, attention_mask, keyword[step])
         else:
             outputs = model(enc_inputs, dec_inputs, segment_ids, attention_mask, None)
+        
         loss = criterion(outputs, target_)
 
         loss.backward()
@@ -89,16 +101,15 @@ def train(model, gpt_model, iterator, optimizer, criterion, args):
             total_train_loss.append(total_loss.data.cpu().numpy()/iter_num)
             iteration_list.append(iteration)
             iteration += 1
-
+    
     return total_loss.data.cpu().numpy() / iter_num, train_acc.data.cpu().numpy() / iter_num
 
 
-def valid(model, gpt_model, iterator, optimizer, criterion, args):
+def valid(model, iterator, optimizer, criterion, args):
     total_loss = 0
     iter_num = 0
     test_acc = 0
     model.eval()
-    gpt_model.eval()
 
     if args.useKey == 'True':
         keyword = keyword_loader(args, 'valid')
@@ -113,9 +124,6 @@ def valid(model, gpt_model, iterator, optimizer, criterion, args):
             dec_inputs = get_dec_inputs(copy_dec_inputs, gpt_pad_token, gpt_eos_token)
             target_ = get_target(copy_dec_target, gpt_pad_token)
             target_ = target_.view(-1)
-
-            with torch.no_grad():
-                dec_inputs = gpt_model(dec_inputs)
 
             segment_ids, valid_len = get_segment_ids_vaild_len(enc_inputs, pad_token_idx)
             attention_mask = gen_attention_mask(enc_inputs, valid_len)
@@ -137,13 +145,12 @@ def valid(model, gpt_model, iterator, optimizer, criterion, args):
         return total_loss.data.cpu().numpy() / iter_num, test_acc.data.cpu().numpy() / iter_num
 
 
-def test(model, gpt_model, iterator, optimizer, criterion, args):
+def test(model, iterator, optimizer, criterion, args):
     total_loss = 0
     iter_num = 0
     test_acc = 0
     model.eval()
-    gpt_model.eval()
-
+    
     if args.useKey == 'True':
         keyword = keyword_loader(args, 'test')
 
@@ -158,12 +165,9 @@ def test(model, gpt_model, iterator, optimizer, criterion, args):
             target_ = get_target(copy_dec_target, gpt_pad_token)
             target_ = target_.view(-1)
 
-            with torch.no_grad():
-                dec_inputs = gpt_model(dec_inputs)
-
             segment_ids, valid_len = get_segment_ids_vaild_len(enc_inputs, pad_token_idx)
             attention_mask = gen_attention_mask(enc_inputs, valid_len)
-            
+        
             if args.useKey == 'True':
                 outputs = model(enc_inputs, dec_inputs, segment_ids, attention_mask, keyword[step])
             else:
@@ -180,7 +184,7 @@ def test(model, gpt_model, iterator, optimizer, criterion, args):
         return total_loss.data.cpu().numpy() / iter_num, test_acc.data.cpu().numpy() / iter_num
 
 
-def main(train_loader_, test_loader_, valid_loader_):
+def main(train_loader_, test_loader_, valid_loader_, bert_tok):
     early_stop_check = 0
 
     for idx, (key, value) in enumerate(args.__dict__.items()):
@@ -191,21 +195,16 @@ def main(train_loader_, test_loader_, valid_loader_):
         else:
             print("\t", key, ":", value)
 
-    if args.PALs_ == 'True':
-        transformer_model = Transformer_PALs(cache_dir, args).to(device)
+    if args.useKeyLayer == 'True' and args.useKey == 'True':
+        transformer_model = Transformer_layer(cache_dir, args).to(device)
     else:
-        if args.useKeyLayer == 'True' and args.useKey == 'True':
-            transformer_model = Transformer_layer(cache_dir, args).to(device)
-        else:
-            transformer_model = Transformer(cache_dir, args).to(device)
+        transformer_model = Transformer(cache_dir, args).to(device)
 
     criterion = nn.CrossEntropyLoss(ignore_index=gpt_pad_token)
-    optimizer = optim.Adam(transformer_model.parameters(), lr=args.lr)
+    optimizer = optim.AdamW(transformer_model.parameters(), lr=args.lr)
 
     best_valid_loss = float('inf')
-    sorted_path = f'./output_dir/{data_file_front}_key.pt'
-
-    gpt_model = GPT2()
+    sorted_path = f'./output_dir/{data_file_front}_nosoft_key_layer.pt'
 
     if args.train_ == 'True':
         for epoch in range(args.num_epochs):
@@ -213,10 +212,10 @@ def main(train_loader_, test_loader_, valid_loader_):
 
             # train, validation
             train_loss, train_acc = train(
-                transformer_model, gpt_model, train_loader_, optimizer, criterion, args)
+                transformer_model, train_loader_, optimizer, criterion, args, bert_tok)
 
             valid_loss, valid_acc = valid(
-                transformer_model, gpt_model, test_loader_, optimizer, criterion, args)
+                transformer_model, test_loader_, optimizer, criterion, args)
 
             # time cal
             end_time = time.time()
@@ -244,36 +243,25 @@ def main(train_loader_, test_loader_, valid_loader_):
     #    summary.add_scalar('loss/loss_tr', total_train_loss[i], iteration_list[i])
 
     if args.test_ == 'True':
-        if args.PALs_ == 'True':
-            transformer_model = Transformer_PALs(cache_dir, args).to(device)
+        if args.useKeyLayer == 'True' and args.useKey == 'True':
+            transformer_model = Transformer_layer(cache_dir, args).to(device)
             transformer_model.load_state_dict(torch.load(sorted_path))
         else:
-            if args.useKeyLayer == 'True' and args.useKey == 'True':
-                transformer_model = Transformer_layer(cache_dir, args).to(device)
-                transformer_model.load_state_dict(torch.load(sorted_path))
-            else:
-                transformer_model = Transformer(cache_dir, args).to(device)
-                transformer_model.load_state_dict(torch.load(sorted_path))
+            transformer_model = Transformer(cache_dir, args).to(device)
+            transformer_model.load_state_dict(torch.load(sorted_path))
 
         test_loss, test_acc = test(
-            transformer_model, gpt_model, valid_loader_, optimizer, criterion, args)
+            transformer_model, valid_loader_, optimizer, criterion, args)
 
         #print loss and acc
         print(f'\n\t==Test loss: {test_loss:.3f} | Test acc: {test_acc:.3f}==\n')
         first_check = 0
 
         while (True):
-            inference(transformer_model, gpt_model, gpt_vocab, args, data_file_front, first_check)
+            inference(transformer_model, gpt_vocab, args, data_file_front, first_check)
             first_check = 1
             print("\n")
 
-def main_infer():
-    model = Transformer(cache_dir, args).to(device)
-    gpt_model = GPT2()
-    sorted_path = f'./output_dir/{data_file_front}_nokey.pt'
-    model.load_state_dict(torch.load(sorted_path))
-    
-    inference(transformer_model, gpt_model, gpy_vocab, args, data_file_front, first_check)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -287,4 +275,4 @@ if __name__ == '__main__':
     
     train_loader, test_loader, valid_loader, pad_token_idx, gpt_pad_token, bert_tokenizer, data_file_front, gpt_init_token, gpt_eos_token = load_data(args, gpt_tokenizer, gpt_vocab)
 
-    main(train_loader, test_loader, valid_loader)
+    main(train_loader, test_loader, valid_loader, bert_tokenizer)

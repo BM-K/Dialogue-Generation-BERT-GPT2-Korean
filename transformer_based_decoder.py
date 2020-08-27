@@ -1,8 +1,12 @@
+import copy
 import torch
 import numpy as np
 import torch.nn as nn
 from transformers import BertModel, BertConfig
 from keyword_matrix import keyword, for_addition_layer
+from KoGPT2.kogpt2.pytorch_kogpt2 import get_pytorch_kogpt2_model
+from KoGPT2.kogpt2.utils import get_tokenizer
+from gluonnlp.data import SentencepieceTokenizer
 
 gpt_vocab_size = 50000
 d_ff = 2048  # FeedForward dimension
@@ -92,17 +96,18 @@ class DecoderLayer(nn.Module):
     def __init__(self, args):
         super(DecoderLayer, self).__init__()
         self.dec_enc_attn = MultiheadAttention(args)
-        #self.dec_enc_keyword_attn = MultiheadAttention(args)
         self.pos_ffn = PoswiseFeedForwardNet(args)
+        self.gpt_model, self.vocab = get_pytorch_kogpt2_model()
 
-    def forward(self, dec_inputs, enc_outputs, dec_self_attn_mask, dec_enc_attn_mask):
+    def forward(self, dec_inputs, enc_outputs, dec_self_attn_mask, dec_enc_attn_mask, first_check, position):
+        #with torch.no_grad():
+        dec_inputs, position = self.gpt_model(input_ids=dec_inputs.to(device), first_check=first_check, position=position)
         dec_outputs, dec_enc_attn = self.dec_enc_attn(dec_inputs, enc_outputs, enc_outputs, dec_enc_attn_mask)
-        #dec_outputs, _ = self.dec_enc_keyword_attn(dec_outputs, keyword, keyword, None)
-
-        with torch.no_grad():
-            dec_outputs = self.pos_ffn(dec_outputs)
-            
-        return dec_outputs  #, dec_self_attn, dec_enc_attn
+        
+        #with torch.no_grad():
+        dec_outputs = self.pos_ffn(dec_outputs)
+        
+        return dec_outputs, position  #, dec_self_attn, dec_enc_attn
 
 class Decoder(nn.Module):
     def __init__(self, args):
@@ -111,9 +116,11 @@ class Decoder(nn.Module):
 
     def forward(self, dec_inputs, enc_outputs):#keyword):  # dec_inputs : [batch_size x target_len]
     
-        for layer in self.layers:
-            dec_outputs = \
-                layer(dec_inputs, enc_outputs, dec_self_attn_mask=None, dec_enc_attn_mask=None)
+        for step, layer in enumerate(self.layers):
+            if step==0:
+                dec_outputs, position = layer(dec_inputs, enc_outputs, dec_self_attn_mask=None, dec_enc_attn_mask=None, first_check=True, position=None)
+            else:
+                dec_outputs, position = layer(dec_outputs, enc_outputs, dec_self_attn_mask=None, dec_enc_attn_mask=None, first_check=False, position=position)
             
         return dec_outputs
 
@@ -139,15 +146,13 @@ class Transformer(nn.Module):
                                  num_hidden_layers=12, num_attention_heads=12)
         self.bert.model = BertModel(bert_config)
 
-    def forward(self, enc_inputs, dec_inputs, segment_ids, attn_mask, keyword_):
+    def forward(self, enc_inputs, dec_inputs, segment_ids, attn_mask, keyword_, update_idx):
         bert_encoding_vec = self.bert(enc_inputs, segment_ids, attn_mask)
-        
-        #keyword = for_addition_layer(self.args, keyword_)
         
         with torch.no_grad():
             if keyword_ is not None:
-                bert_encoding_vec = keyword(self.args, bert_encoding_vec, keyword_)
-        
+                bert_encoding_vec = keyword(self.args, bert_encoding_vec, keyword_) 
+
         dec_outputs = self.decoder(dec_inputs, bert_encoding_vec)
         dec_logits = self.projection(dec_outputs)  # dec_logits : [batch_size x src_vocab_size x tgt_vocab_size]
         return dec_logits.view(-1, dec_logits.size(-1))

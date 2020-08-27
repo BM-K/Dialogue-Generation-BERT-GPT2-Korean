@@ -24,13 +24,13 @@ gpt_init_token = gpt_vocab[gpt_vocab.bos_token]
 gpt_eos_token = gpt_vocab[gpt_vocab.eos_token]
 
 
-def inference(model, gpt_model, gpt_vocab, args, data_file_front, first_check):
+def inference(model, gpt_vocab, args, data_file_front, first_check):
 
     if first_check==0:
         print("\nPlease wait... calculating distinct, bleu score")
 
         # distinct score 를 구하기 위한 부분
-        Q_list, A_list, P_list = infer_test_set(model, gpt_model, gpt_vocab, args, data_file_front)
+        Q_list, A_list, P_list = infer_test_set(model, gpt_vocab, args, data_file_front)
 
         # bleu score 를 구하기 위한 부분
         Bleu_score(A_list, P_list)
@@ -89,13 +89,13 @@ def inference(model, gpt_model, gpt_vocab, args, data_file_front, first_check):
 
 # test set Q에 대한 Inference
 # distinct score를 구하기 위한 함수
-def infer_test_set(model, gpt_model, gpt_vocab, args, data_file_front):
+def infer_test_set(model, gpt_vocab, args, data_file_front):
     valid_data_ = f'{data_file_front}_test.txt.tsv'
     valid_data_list = []
     valid_Q_list = []
     valid_A_list = []
     valid_P_list = []
-    with open(f'{args.data_dir}/{valid_data_}', "r", encoding="utf-8") as f:
+    with open(f'{args.data_dir}/{valid_data_}', "r", encoding="utf-8-sig") as f:
         lines = f.readlines()
         all_val_len = len(lines)
 
@@ -143,16 +143,14 @@ def infer_test_set(model, gpt_model, gpt_vocab, args, data_file_front):
             pred = []
 
             model.eval()
-            gpt_model.eval()
-            
+                 
             for i in range(args.max_len):
-                with torch.no_grad():
-                    dec_in = gpt_model(dec_inputs.cpu())
                 
                 if args.useKey == 'True' or args.useKeyLayer == 'True':
-                    y_pred = model(enc_inputs, dec_in, segment_ids, attention_mask, [keyword[step][batch_step]])
+                    y_pred = model(enc_inputs, dec_inputs, segment_ids, attention_mask, [keyword[step][batch_step]])
                 else:
-                    y_pred = model(enc_inputs, dec_in, segment_ids, attention_mask, None)
+                    y_pred = model(enc_inputs, dec_inputs, segment_ids, attention_mask, None)
+                
                 y_pred_ids = y_pred.max(dim=-1)[1]
                 
                 if (y_pred_ids[-1] == gpt_eos_token):
@@ -190,7 +188,7 @@ def infer_test_set(model, gpt_model, gpt_vocab, args, data_file_front):
         else:
             valid_P_sen = valid_P_sen + " " + valid_P_list[idx]
 
-    with open(f'./for_distinct/{data_file_front}.txt', "w", encoding="utf-8") as out_file:
+    with open(f'./for_distinct/{data_file_front}.txt', "w", encoding="utf-8-sig") as out_file:
         hyung = mecab.pos(u'{0}'.format(valid_P_sen))
         temp_sen = ""
         for i in range(len(hyung)):
@@ -201,7 +199,7 @@ def infer_test_set(model, gpt_model, gpt_vocab, args, data_file_front):
         pred = f'{temp_sen}'
         out_file.write(pred)
 
-    with open(f'./output_QAP/{data_file_front}_QAP.txt', "w", encoding="utf-8") as out_file:
+    with open(f'./output_QAP/{data_file_front}_QAP.txt', "w", encoding="utf-8-sig") as out_file:
         for i in range(len(valid_Q_list)):
             msg_Q = f'Q> {valid_Q_list[i]}\n'
             msg_A = f'A> {valid_A_list[i]}\n'
@@ -211,11 +209,11 @@ def infer_test_set(model, gpt_model, gpt_vocab, args, data_file_front):
             out_file.write(msg_P)
             out_file.write("----------------\n")
     
-    with open(f'./output_QAP/{data_file_front}_Q.txt', "w", encoding="utf-8") as out_file:
+    with open(f'./output_QAP/{data_file_front}_Q.txt', "w", encoding="utf-8-sig") as out_file:
         for i in range(len(valid_Q_list)):
             msg_Q = f'{valid_Q_list[i]}\n'
             out_file.write(msg_Q)
-    with open(f'./output_QAP/{data_file_front}_P.txt', "w", encoding="utf-8") as out_file:
+    with open(f'./output_QAP/{data_file_front}_P.txt', "w", encoding="utf-8-sig") as out_file:
         for i in range(len(valid_P_list)):
             msg_P = f'{valid_P_list[i]}\n'
             out_file.write(msg_P)
