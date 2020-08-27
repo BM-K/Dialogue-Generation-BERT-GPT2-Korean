@@ -1,6 +1,3 @@
-현재 모델상에 잘못된 로직이 있어 고쳐야함
-
-
 # Dialogue-Generation-BERT-GPT2-Korean
 'aihub data' was used
 
