@@ -1,4 +1,4 @@
-# Dialogue-Generation-BERT-GPT2-Korean
+# Dialogue-Generation-BERT-GPT2-Korean using keyword layer
 'aihub data' was used
 
 ## How to use
