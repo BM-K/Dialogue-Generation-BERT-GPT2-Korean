@@ -1,5 +1,5 @@
 # Dialogue-Generation-BERT-GPT2-Korean using keyword layer
-연구용 
+연구용 레파지토리
 'aihub data' was used
 
 ## How to use
