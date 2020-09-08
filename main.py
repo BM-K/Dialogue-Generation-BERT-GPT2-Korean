@@ -1,3 +1,4 @@
+import random
 import time
 import copy
 import torch
@@ -23,7 +24,7 @@ def define_args(parser):
     parser.add_argument('--max_len', type=int, default=64)
     parser.add_argument('--batch_size', type=int, default=16)
     parser.add_argument('--num_epochs', type=int, default=100)
-    parser.add_argument('--lr', type=float, default=0.00001)
+    parser.add_argument('--lr', type=float, default=0.00001) # 0.00001
     parser.add_argument('--patience', type=int, default=5)
     parser.add_argument('--d_model', type=int, default=768)
     parser.add_argument('--n_layers', type=int, default=12)
@@ -36,20 +37,6 @@ def define_args(parser):
     args = parser.parse_args()
     return args
 
-def print_keyattn_exm(data, keyword, bert_tok, mean):
-    data = data[0]
-    keyword = keyword[0]
-    key_len = len(keyword)
-    for step, token in enumerate(data):
-        if step == key_len+1:
-            break
-        if step==0:
-            continue
-        if keyword[step-1] < mean:
-            continue
-        print(bert_tok.convert_ids_to_tokens([token]),"\t",keyword[step-1])
-
-    print("-------------")
 
 iteration = 0
 def train(model, iterator, optimizer, criterion, args, bert_tok):
@@ -61,16 +48,14 @@ def train(model, iterator, optimizer, criterion, args, bert_tok):
     model.train()
 
     if args.useKey == 'True':
-        keyword = keyword_loader(args, 'train')
+        keyword, refine_idx = keyword_loader(args, 'train', bert_tok)
     
     for step, batch in enumerate(iterator):
         
         optimizer.zero_grad()
 
         enc_inputs = batch.que
-        
-        #print_keyattn_exm(enc_inputs, keyword[step], bert_tok, mean)
-
+    
         copy_dec_inputs = copy.deepcopy(batch.ans)
         copy_dec_target = copy.deepcopy(batch.ans)
 
@@ -82,12 +67,12 @@ def train(model, iterator, optimizer, criterion, args, bert_tok):
         attention_mask = gen_attention_mask(enc_inputs, valid_len)
         
         if args.useKey == 'True':
-            outputs = model(enc_inputs, dec_inputs, segment_ids, attention_mask, keyword[step])
+            outputs = model(enc_inputs, dec_inputs, segment_ids, attention_mask, keyword[step], refine_idx[step])
         else:
-            outputs = model(enc_inputs, dec_inputs, segment_ids, attention_mask, None)
+            outputs = model(enc_inputs, dec_inputs, segment_ids, attention_mask, None, refine_idx[step])
         
         loss = criterion(outputs, target_)
-
+    
         loss.backward()
         optimizer.step()
 
@@ -105,14 +90,14 @@ def train(model, iterator, optimizer, criterion, args, bert_tok):
     return total_loss.data.cpu().numpy() / iter_num, train_acc.data.cpu().numpy() / iter_num
 
 
-def valid(model, iterator, optimizer, criterion, args):
+def valid(model, iterator, optimizer, criterion, args, bert_tok):
     total_loss = 0
     iter_num = 0
     test_acc = 0
     model.eval()
 
     if args.useKey == 'True':
-        keyword = keyword_loader(args, 'valid')
+        keyword, refine_idx = keyword_loader(args, 'valid', bert_tok)
 
     with torch.no_grad():
         for step, batch in enumerate(iterator):
@@ -129,9 +114,9 @@ def valid(model, iterator, optimizer, criterion, args):
             attention_mask = gen_attention_mask(enc_inputs, valid_len)
             
             if args.useKey == 'True':
-                outputs = model(enc_inputs, dec_inputs, segment_ids, attention_mask, keyword[step])
+                outputs = model(enc_inputs, dec_inputs, segment_ids, attention_mask, keyword[step], refine_idx[step])
             else:
-                outputs = model(enc_inputs, dec_inputs, segment_ids, attention_mask, None)
+                outputs = model(enc_inputs, dec_inputs, segment_ids, attention_mask, None, refine_idx[step])
             
             loss = criterion(outputs, target_)
 
@@ -145,14 +130,14 @@ def valid(model, iterator, optimizer, criterion, args):
         return total_loss.data.cpu().numpy() / iter_num, test_acc.data.cpu().numpy() / iter_num
 
 
-def test(model, iterator, optimizer, criterion, args):
+def test(model, iterator, optimizer, criterion, args, bert_tok):
     total_loss = 0
     iter_num = 0
     test_acc = 0
     model.eval()
     
     if args.useKey == 'True':
-        keyword = keyword_loader(args, 'test')
+        keyword, refine_idx = keyword_loader(args, 'test', bert_tok)
 
     with torch.no_grad():
         for step, batch in enumerate(iterator):
@@ -169,9 +154,9 @@ def test(model, iterator, optimizer, criterion, args):
             attention_mask = gen_attention_mask(enc_inputs, valid_len)
         
             if args.useKey == 'True':
-                outputs = model(enc_inputs, dec_inputs, segment_ids, attention_mask, keyword[step])
+                outputs = model(enc_inputs, dec_inputs, segment_ids, attention_mask, keyword[step], refine_idx[step])
             else:
-                outputs = model(enc_inputs, dec_inputs, segment_ids, attention_mask, None)
+                outputs = model(enc_inputs, dec_inputs, segment_ids, attention_mask, None, refine_idx[step])
 
             loss = criterion(outputs, target_)
 
@@ -204,7 +189,7 @@ def main(train_loader_, test_loader_, valid_loader_, bert_tok):
     optimizer = optim.AdamW(transformer_model.parameters(), lr=args.lr)
 
     best_valid_loss = float('inf')
-    sorted_path = f'./output_dir/{data_file_front}_nosoft_key_layer.pt'
+    sorted_path = f'./output_dir/{data_file_front}_keyword_resi_layer_refine_soft.pt'
 
     if args.train_ == 'True':
         for epoch in range(args.num_epochs):
@@ -215,7 +200,7 @@ def main(train_loader_, test_loader_, valid_loader_, bert_tok):
                 transformer_model, train_loader_, optimizer, criterion, args, bert_tok)
 
             valid_loss, valid_acc = valid(
-                transformer_model, test_loader_, optimizer, criterion, args)
+                transformer_model, test_loader_, optimizer, criterion, args, bert_tok)
 
             # time cal
             end_time = time.time()
@@ -251,14 +236,14 @@ def main(train_loader_, test_loader_, valid_loader_, bert_tok):
             transformer_model.load_state_dict(torch.load(sorted_path))
 
         test_loss, test_acc = test(
-            transformer_model, valid_loader_, optimizer, criterion, args)
-
+            transformer_model, valid_loader_, optimizer, criterion, args, bert_tok)
+       
         #print loss and acc
         print(f'\n\t==Test loss: {test_loss:.3f} | Test acc: {test_acc:.3f}==\n')
         first_check = 0
 
         while (True):
-            inference(transformer_model, gpt_vocab, args, data_file_front, first_check)
+            inference(transformer_model, gpt_vocab, args, data_file_front, first_check, bert_tok)
             first_check = 1
             print("\n")
 

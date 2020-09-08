@@ -1,3 +1,4 @@
+import copy
 import torch
 import numpy as np
 import torch.nn as nn
@@ -22,11 +23,11 @@ def get_sinusoid_encoding_table(n_position, d_model):
     sinusoid_table[:, 1::2] = np.cos(sinusoid_table[:, 1::2])  # dim 2i+1
     return torch.FloatTensor(sinusoid_table)
 
-def get_attn_pad_mask(seq_q, seq_k):
+def get_attn_pad_mask(seq_q, seq_k, pad):
     batch_size, len_q = seq_q.size()
     batch_size, len_k = seq_k.size()
     # eq(zero) is PAD token
-    pad_attn_mask = seq_k.data.eq(0).unsqueeze(1)  # PAD = 0 이므로 eq(3)
+    pad_attn_mask = seq_k.data.eq(pad).unsqueeze(1)  # PAD = 0 이므로 eq(3)
     # batch_size x 1 x len_k(=len_q), one is masking
     return pad_attn_mask.expand(batch_size, len_q, len_k)  # batch_size x len_q x len_k
 
@@ -41,15 +42,18 @@ class ScaledDotProductAttention(nn.Module):
         super(ScaledDotProductAttention, self).__init__()
         self.d_k = int(args.d_model / args.n_heads)
 
-    def forward(self, Q, K, V, attn_mask=None):
+    def forward(self, Q, K, V, isKeyword, attn_mask=None):
+        
         scores = torch.matmul(Q, K.transpose(-1, -2)) / np.sqrt(self.d_k)  # scores : [batch_size x n_heads x len_q(=len_k) x len_k(=len_q)
-
+        
         if attn_mask is not None:
-            scores.masked_fill_(attn_mask, -1e9)
-
+            scores.masked_fill_(attn_mask.to(device), -1e9)
+    
         # padding 부분을 -1000000 처럼 큰 음수값을 할당하여 softmax 후 해당 값을 0으로 나오게 만들어야함.
         attn = nn.Softmax(dim=-1)(scores)
+        
         context = torch.matmul(attn, V)
+        
         return context, attn
 
 class MultiheadAttention(nn.Module):
@@ -65,18 +69,24 @@ class MultiheadAttention(nn.Module):
         self.li1 = nn.Linear(args.n_heads * self.d_v, args.d_model)
         self.layer_norm = nn.LayerNorm(args.d_model)
 
-    def forward(self, Q, K, V, attn_mask):
+    def forward(self, Q, K, V, isKeyword, resi_keyword):
         # q: [batch_size x len_q x d_model], k: [batch_size x len_k x d_model], v: [batch x len_k x d_model]
+        
         residual, batch_size = Q, Q.size(0)
+
         # (B, S, D) -proj-> (B, S, D) -split-> (B, S, H, W) -trans-> (B, H, S, W)
         q_s = self.W_Q(Q).view(batch_size, -1, self.n_heads, self.d_k).transpose(1, 2)  # q_s:[batch_size x n_heads x len_q x d_k]
         k_s = self.W_K(K).view(batch_size, -1, self.n_heads, self.d_k).transpose(1, 2)  # k_s:[batch_size x n_heads x len_q x d_k]
         v_s = self.W_V(V).view(batch_size, -1, self.n_heads, self.d_v).transpose(1, 2)  # v_s:[batch_size x n_heads x len_q x d_v]
 
-        context, attn = ScaledDotProductAttention(self.args)(q_s, k_s, v_s, attn_mask=None)
+        context, attn = ScaledDotProductAttention(self.args)(q_s, k_s, v_s, isKeyword, attn_mask=None)
         # context: [batch_size x n_heads x len_q x d_v], attn: [batch_size x n_heads x len_q(=len_k) x len_k(=len_q)]
         context = context.transpose(1, 2).contiguous().view(batch_size, -1, self.n_heads * self.d_v)
+        
         output = self.li1(context)
+        
+        if resi_keyword is not None:
+            return self.layer_norm(output + residual + resi_keyword), None
 
         return self.layer_norm(output + residual), attn
         # output: [batch_size x len_q x d_model]
@@ -99,17 +109,18 @@ class DecoderLayer(nn.Module):
     def __init__(self, args):
         super(DecoderLayer, self).__init__()
         self.dec_enc_attn = MultiheadAttention(args)
-        self.dec_enc_keyword_attn = MultiheadAttention(args)
+        self.dec_keyword_attn = MultiheadAttention(args)
         self.pos_ffn = PoswiseFeedForwardNet(args)
         self.gpt_model, self.vocab = get_pytorch_kogpt2_model()
 
-    def forward(self, dec_inputs, enc_outputs, keyword, dec_enc_attn_mask, first_check, position):
+    def forward(self, dec_inputs, enc_outputs, keyword, resi_keyword, first_check, position):
        
         dec_inputs, position = self.gpt_model(input_ids=dec_inputs.to(device), first_check=first_check, position=position)
-    
-        dec_outputs, dec_enc_attn = self.dec_enc_attn(dec_inputs, enc_outputs, enc_outputs, dec_enc_attn_mask)
         
-        dec_outputs, _ = self.dec_enc_keyword_attn(dec_outputs, keyword, keyword, None)
+        #enc_outputs, _ = self.enc_keyword_attn(keyword, enc_outputs, enc_outputs, None, True, False, None)
+        dec_outputs, dec_enc_attn = self.dec_enc_attn(dec_inputs, enc_outputs, enc_outputs, False, resi_keyword)
+        
+        dec_outputs, _ = self.dec_keyword_attn(dec_outputs, keyword, keyword, True, None)
         
         dec_outputs = self.pos_ffn(dec_outputs)
         
@@ -120,22 +131,14 @@ class Decoder(nn.Module):
         super(Decoder, self).__init__()
         self.layers = nn.ModuleList([DecoderLayer(args) for _ in range(args.n_layers)])
 
-    def forward(self, dec_inputs, enc_inputs, enc_outputs, keyword):  # dec_inputs : [batch_size x target_len]
-        
-        print(dec_inputs)
-        print(enc_inputs)
-        dec_enc_attn_mask = get_attn_pad_mask(dec_inputs, enc_inputs)
-        
-        print(dec_enc_attn_mask)
-        print(dec_enc_attn_mask.size())
-        exit()
-
+    def forward(self, dec_inputs, enc_inputs, enc_outputs, keyword, resi_keyword):  # dec_inputs : [batch_size x target_len]
+           
         for step, layer in enumerate(self.layers):
-
+            
             if step==0:
-                dec_outputs, position = layer(dec_inputs, enc_outputs, keyword, dec_enc_attn_mask=None, first_check=True, position=None)
+                dec_outputs, position = layer(dec_inputs, enc_outputs, keyword, resi_keyword, first_check=True, position=None)
             else:
-                dec_outputs, position = layer(dec_outputs, enc_outputs, keyword, dec_enc_attn_mask=None, first_check=False, position=position)
+                dec_outputs, position = layer(dec_outputs, enc_outputs, keyword, resi_keyword, first_check=False, position=position)
             
         return dec_outputs
 
@@ -162,16 +165,23 @@ class Transformer_layer(nn.Module):
                 num_hidden_layers=12, num_attention_heads=12)
         self.bert.model = BertModel(bert_config)
 
-    def forward(self, enc_inputs, dec_inputs, segment_ids, attn_mask, keyword_):
+    def forward(self, enc_inputs, dec_inputs, segment_ids, attn_mask, keyword_, refine_idx):
         bert_encoding_vec = self.bert(enc_inputs, segment_ids, attn_mask)
-
+        
         if self.args.useKey == 'True' and self.args.useKeyLayer == 'True':
-            keyword = for_addition_layer(self.args, keyword_)
+            resi_keyword = copy.deepcopy(keyword_)
+            for_key_V = copy.deepcopy(keyword_)
+            attn_keyword, _ = for_addition_layer(self.args, keyword_, None, want_tensor=1)
+            resi_keyword, _ = for_addition_layer(self.args, resi_keyword, refine_idx, want_tensor=0)
+            
         else:
-            print("if you want to use key layer, args.useKey option and args.useKeyLayer option are True")
+            print("if you want to use key layer, args.useKey option and args.useKeyLayer option set True")
             exit()
+        
+        dec_outputs = self.decoder(dec_inputs, enc_inputs, bert_encoding_vec, attn_keyword, resi_keyword)
+        # Normal
+        #dec_outputs = self.decoder(dec_inputs, enc_inputs, bert_encoding_vec, attn_keyword, mask_keyword, None)
 
-        dec_outputs = self.decoder(dec_inputs, enc_inputs, bert_encoding_vec, keyword)
         dec_logits = self.projection(dec_outputs)  # dec_logits : [batch_size x src_vocab_size x tgt_vocab_size]
         
         return dec_logits.view(-1, dec_logits.size(-1))

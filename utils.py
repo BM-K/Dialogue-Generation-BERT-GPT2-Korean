@@ -10,6 +10,15 @@ def get_target(temp_target, gpt_pad_token):
     return temp_target
 
 
+def concat_pad(args, dec_inputs):
+    pad_token = torch.tensor([[3]]) # gpt pad token idx
+
+    for idx in range(args.max_len-1):
+        dec_inputs = torch.cat([dec_inputs, pad_token], dim=-1)
+
+    return dec_inputs
+
+
 def get_dec_inputs(temp_dec, gpt_pad_token, gpt_eos_token):
     pad_token = gpt_pad_token
     eos_token = gpt_eos_token
