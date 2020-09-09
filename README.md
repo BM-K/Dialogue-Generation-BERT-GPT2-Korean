@@ -5,7 +5,7 @@
 ## How to use
 본 repo에선 ETRI KoBERT를 제공하지 않음
 
-install konlpy -> https://konlpy.org/ko/stable/install/
+install konlpy mecab (for inference) -> https://konlpy.org/ko/stable/install/
 ```ruby
 git clone https://github.com/BM-K/Dialogue-Generation-BERT-GPT2-Korean.git
 cd Dialogue-Generation-BERT-GPT2-Korean
