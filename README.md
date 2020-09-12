@@ -1,6 +1,5 @@
 # Dialogue-Generation-BERT-GPT2-Korean using keyword layer
 연구용 레파지토리 <br>
-'aihub data' was used
 
 ## How to use
 본 repo에선 ETRI KoBERT를 제공하지 않음
