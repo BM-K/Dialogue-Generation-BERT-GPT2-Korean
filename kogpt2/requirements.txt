@@ -1,5 +1,5 @@
 gluonnlp == 0.9.1
 mxnet == 1.9.1
 sentencepiece >= 0.1.85
-torch == 1.5.0
+torch == 2.8.0
 transformers == 4.36.0
