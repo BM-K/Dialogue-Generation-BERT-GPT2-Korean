@@ -5,4 +5,4 @@ nltk
 torchtext
 sentencepiece >= 0.1.6
 torch >= 1.4.0
-transformers == 4.36.0
+transformers == 5.0.0rc3
